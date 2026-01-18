@@ -1,9 +1,11 @@
-#include "base.h"
-
 typedef struct {
     u8 rows, cols;
     f32* data;
 } matrix;
+
+typedef struct {
+    f32 x, y;
+} vector2;
 
 matrix* mat_create(u8 rows, u8 cols);
 void mat_clear(matrix* mat);

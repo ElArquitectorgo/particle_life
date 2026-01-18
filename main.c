@@ -1,13 +1,16 @@
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 #include <SDL3_image/SDL_image.h>
+#include <SDL3_ttf/SDL_ttf.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
 #include "base.h"
+#include "utils.c"
 #include "particle.c"
+#include "space_partitioning.c"
 
-u32 num_particles = 600;
+u32 num_particles = 1000;
 f32 dt = 0.002;
 f32 friction_half_time = 0.040;
 f32 friction_factor = 0.4;
@@ -21,6 +24,8 @@ typedef struct {
 typedef struct {
     SDL_Window* window;
     SDL_Renderer* renderer;
+    TTF_TextEngine* text_engine;
+    TTF_Font* font;
     u16 width, height;
 } sdl_state;
 
@@ -29,12 +34,15 @@ int init(sdl_state* state);
 texture* load_textures(SDL_Renderer *renderer);
 void unload_textures(texture* textures);
 void draw(sdl_state* state, particle* particles, texture* textures);
+void draw_fps(sdl_state* state, const char* text);
 
 // Logic
 f32 force(f32 r, f32 a);
 float get_attraction(particle* p1, particle* p2, matrix* colors);
 void check_boundaries(particle* particles);
 void update(particle* particles, matrix* colors);
+void update_with_sp(particle* particles, matrix* colors, spatial_lookup* slp);
+void update_slp(particle* particles, matrix* colors, spatial_lookup* slp);
 
 f32 force(f32 r, f32 a) {
     f32 beta = 0.3;
@@ -107,6 +115,58 @@ void update(particle* particles, matrix* colors) {
     check_boundaries(particles);
 }
 
+void update_slp(particle* particles, matrix* colors, spatial_lookup* slp) {
+    // update velocities
+    for (int i = 0; i < num_particles; i++) {
+        f32 total_force_x = 0;
+        f32 total_force_y = 0;
+
+        vector2 cell = pos_to_cell_key(&particles[i], r_max);
+        // Loop over 3x3 block around cell
+        for (int offset_x = -1; offset_x <= 1; offset_x++) {
+            for (int offset_y = -1; offset_y <= 1; offset_y++) {
+                u32 key = get_hash(cell.x + offset_x, cell.y + offset_y, slp->count);
+                u32 cell_start_index = slp->start_indices[key];
+                for (u32 k = cell_start_index; k < slp->count; k++) {
+                    if (slp->pairs[k].cell_key != key) break;
+                    u32 particle_index = slp->pairs[k].particle_index;
+                    f32 rx = particles[particle_index].x - particles[i].x;
+                    f32 ry = particles[particle_index].y - particles[i].y;
+                    f32 r = hypotf(rx, ry);
+
+                    if (r > 0 && r < r_max) {
+                        f32 f = force(r / r_max, get_attraction(&particles[i], &particles[particle_index], colors));
+                        total_force_x += rx / r * f;
+                        total_force_y += ry / r * f;
+                    }
+                }
+            }
+        }
+
+        total_force_x *= r_max * force_factor;
+        total_force_y *= r_max * force_factor;
+
+        particles[i].vx *= friction_factor;
+        particles[i].vy *= friction_factor;
+
+        particles[i].vx += total_force_x * dt;
+        particles[i].vy += total_force_y * dt;
+    }
+
+    // update positions
+    for (int i = 0; i < num_particles; i++) {
+        particles[i].x += particles[i].vx * dt;
+        particles[i].y += particles[i].vy * dt;
+    }
+
+    check_boundaries(particles);
+}
+
+void update_with_sp(particle* particles, matrix* colors, spatial_lookup* slp) {
+    update_spatial_lookup(slp, particles, r_max);
+    update_slp(particles, colors, slp);
+}
+
 int main() {
     sdl_state state;
     state.width = 1200;
@@ -119,6 +179,7 @@ int main() {
     texture* textures = load_textures(state.renderer);
     particle* particles = create_particles(num_particles);
     matrix* color_matrix = mat_create(3, 3);
+    spatial_lookup* slp = create_spatial_lookup(num_particles);
     
     //          red    green   yellow
     //        _______________________
@@ -158,6 +219,9 @@ int main() {
         }
 
         float dt = (SDL_GetTicks() - last_frame_time) / 1000.0;
+        int fps = (int) (1 / dt);
+        char fps_text[32];
+        snprintf(fps_text, sizeof(fps_text), "FPS: %d", fps);
         last_frame_time = SDL_GetTicks();
 
         SDL_SetRenderDrawColor(state.renderer, 0, 0, 0, 0);
@@ -166,16 +230,23 @@ int main() {
         // RENDER LOOP START
         // Particles positions goes from 0 to 1. The draw method scales depending on window size
         draw(&state, particles, textures);
-        update(particles, color_matrix);
+        draw_fps(&state, fps_text);
+        //update(particles, color_matrix);
+        update_with_sp(particles, color_matrix, slp);
         // RENDER LOOP END
         SDL_RenderPresent(state.renderer);
+        //printf("%f\n", 1 / dt);
     }
 
     free(particles);
     mat_clear(color_matrix);
     unload_textures(textures);
+
     SDL_DestroyRenderer(state.renderer);
     SDL_DestroyWindow(state.window);
+    TTF_CloseFont(state.font);
+    TTF_DestroyRendererTextEngine(state.text_engine);
+    TTF_Quit();
     SDL_Quit();
     return 0;
 }
@@ -204,12 +275,17 @@ f32 get_attraction(particle* p1, particle* p2, matrix* colors) {
 
 void draw(sdl_state* state, particle* particles, texture* textures) {
     for (int i = 0; i < num_particles; i++) {
-        SDL_FRect rect = {particles[i].x * state->width, particles[i].y * state->height, 16, 16};
-        u8 texture_index = 0;
-        if (particles[i].color == 1) { texture_index = 1;}
-        else if (particles[i].color == 2) { texture_index = 2; }
-        SDL_RenderTexture(state->renderer, textures[texture_index].texture, NULL, &rect);
+        SDL_FRect rect = { particles[i].x * state->width, particles[i].y * state->height, 16, 16 };
+        SDL_RenderTexture(state->renderer, textures[particles[i].color].texture, NULL, &rect);
     }
+}
+
+void draw_fps(sdl_state* state, const char* str) {
+    TTF_Text* txt = TTF_CreateText(state->text_engine, state->font, str, 0);
+    //SDL_FRect = { state->width - 50, state->height - 50, 0, 0 };
+    TTF_DrawRendererText(txt, state->width - 100, state->height - 50);
+    TTF_DestroyText(txt);
+
 }
 
 int init(sdl_state* state) {
@@ -232,5 +308,20 @@ int init(sdl_state* state) {
         SDL_Quit();
         succes = 1;
     }
+
+    if (TTF_Init() < 0) {
+        SDL_Log("TTF_Init error: %s", SDL_GetError());
+    }
+
+    state->text_engine = TTF_CreateRendererTextEngine(state->renderer);
+    if (state->text_engine == NULL) {
+        SDL_Log("SDL_CreateRenderer Error: %s\n", SDL_GetError());
+    }
+
+    state->font = TTF_OpenFont("FreeSerif.ttf", 20);
+    if (!state->font) {
+        SDL_Log("TTF_OpenFont error: %s", SDL_GetError());
+    }
+
     return succes;
 }
