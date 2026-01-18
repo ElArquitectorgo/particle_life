@@ -4,31 +4,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
+#include "base.h"
+#include "particle.c"
 
-typedef uint8_t u8;
-typedef uint16_t u16;
-typedef float f32;
-
-#define MIN(a, b) (((a) < (b)) ? (a) : (b))
-#define MAX(a, b) (((a) > (b)) ? (a) : (b))
-#define ABS(n) ((n) < 0 ? -(n) : (n))
-
-int num_particles = 600;
+u32 num_particles = 600;
 f32 dt = 0.002;
 f32 friction_half_time = 0.040;
 f32 friction_factor = 0.4;
 f32 r_max = 0.2;
 f32 force_factor = 2;
-
-typedef struct {
-    u8 rows, cols;
-    f32* data;
-} matrix;
-
-typedef struct {
-    float x, y, vx, vy;
-    u8 color;
-} particle;
 
 typedef struct {
     SDL_Texture* texture;
@@ -42,7 +26,6 @@ typedef struct {
 
 // System
 int init(sdl_state* state);
-particle* create_particles();
 texture* load_textures(SDL_Renderer *renderer);
 void unload_textures(texture* textures);
 void draw(sdl_state* state, particle* particles, texture* textures);
@@ -52,14 +35,6 @@ f32 force(f32 r, f32 a);
 float get_attraction(particle* p1, particle* p2, matrix* colors);
 void check_boundaries(particle* particles);
 void update(particle* particles, matrix* colors);
-
-// Math
-float get_rand();
-matrix* mat_create(u8 rows, u8 cols);
-void mat_clear(matrix* mat);
-void mat_fill(matrix* mat, f32 x);
-void mat_assign(matrix* mat, u8 row, u8 col, f32 value);
-f32 mat_get(matrix* mat, u8 row, u8 col);
 
 f32 force(f32 r, f32 a) {
     f32 beta = 0.3;
@@ -104,7 +79,7 @@ void update(particle* particles, matrix* colors) {
             }
             f32 rx = particles[j].x - particles[i].x;
             f32 ry = particles[j].y - particles[i].y;
-            f32 r = hypot(rx, ry);
+            f32 r = hypotf(rx, ry);
 
             if (r > 0 && r < r_max) {
                 f32 f = force(r / r_max, get_attraction(&particles[i], &particles[j], colors));
@@ -142,7 +117,7 @@ int main() {
     }
 
     texture* textures = load_textures(state.renderer);
-    particle* particles = create_particles();
+    particle* particles = create_particles(num_particles);
     matrix* color_matrix = mat_create(3, 3);
     
     //          red    green   yellow
@@ -202,7 +177,6 @@ int main() {
     SDL_DestroyRenderer(state.renderer);
     SDL_DestroyWindow(state.window);
     SDL_Quit();
-
     return 0;
 }
 
@@ -219,62 +193,6 @@ void unload_textures(texture* textures) {
     SDL_DestroyTexture(textures[1].texture);
     SDL_DestroyTexture(textures[2].texture);
     free(textures);
-}
-
-float get_rand() {
-    return (float)rand() / RAND_MAX;
-}
-
-matrix* mat_create(u8 rows, u8 cols) {
-    matrix* mat = malloc(sizeof(matrix));
-    mat->rows = rows;
-    mat->cols = cols;
-    mat->data = malloc(rows * cols * sizeof(f32));
-
-    return mat;
-}
-
-void mat_clear(matrix* mat) {
-    free(mat->data);
-    free(mat);
-}
-
-void mat_fill(matrix* mat, f32 x) {
-    u8 size = mat->rows * mat->cols;
-
-    for (u8 i = 0; i < size; i++) {
-        mat->data[i] = x;
-    }
-}
-
-void mat_assign(matrix* mat, u8 row, u8 col, f32 value) {
-    if (row >= mat->rows || col >= mat->cols) {
-        return;
-    }
-    mat->data[row * mat->cols + col] = value;
-}
-
-f32 mat_get(matrix* mat, u8 row, u8 col) {
-    if (row >= mat->rows || col >= mat->cols) {
-        return 0.0f;
-    }
-    return mat->data[row * mat->cols + col];
-}
-
-particle* create_particles() {
-    particle *particles = malloc(num_particles * sizeof(particle));
-
-    for (int i = 0; i < num_particles; i++) {
-        u8 color = i < 200 ? 0 : i < 400 ? 1 : 2;
-        particles[i] = (particle) {
-            .x = get_rand(),
-            .y = get_rand(),
-            .vx = 0,
-            .vy = 0,
-            .color = color
-        };
-    }
-    return particles;
 }
 
 f32 get_attraction(particle* p1, particle* p2, matrix* colors) {
