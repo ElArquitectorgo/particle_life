@@ -253,9 +253,9 @@ int main() {
 
 texture* load_textures(SDL_Renderer *renderer) {
     texture* textures = malloc(sizeof(texture) * 3);
-    textures[0].texture = IMG_LoadTexture(renderer, "red_dot.png"); 
-    textures[1].texture  = IMG_LoadTexture(renderer, "green_dot.png");
-    textures[2].texture = IMG_LoadTexture(renderer, "yellow_dot.png");
+    textures[0].texture = IMG_LoadTexture(renderer, "sprites/red_dot.png"); 
+    textures[1].texture  = IMG_LoadTexture(renderer, "sprites/green_dot.png");
+    textures[2].texture = IMG_LoadTexture(renderer, "sprites/yellow_dot.png");
     return textures;
 }
 
