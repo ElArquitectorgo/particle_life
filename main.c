@@ -318,7 +318,7 @@ int init(sdl_state* state) {
         SDL_Log("SDL_CreateRenderer Error: %s\n", SDL_GetError());
     }
 
-    state->font = TTF_OpenFont("FreeSerif.ttf", 20);
+    state->font = TTF_OpenFont("FreeMonoBold.ttf", 20);
     if (!state->font) {
         SDL_Log("TTF_OpenFont error: %s", SDL_GetError());
     }

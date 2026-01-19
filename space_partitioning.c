@@ -1,3 +1,5 @@
+// Basically Sebastian Lague's implementation on his fluid simulation
+
 typedef struct {
     u32 cell_key;
     u32 particle_index;

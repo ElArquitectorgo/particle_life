@@ -1,7 +1,7 @@
 # particle_life
 I compile with this
 ```
-gcc -o particleLife main.c `pkg-config --cflags --libs sdl3 sdl3-image` -lm
+gcc -o particleLife main.c `pkg-config --cflags --libs sdl3 sdl3-image sdl3-ttf` -lm
 ```
 and my bashrc is configured with
 ```
